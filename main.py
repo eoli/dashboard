@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import json
 from PyQt5 import QtGui
@@ -65,6 +66,16 @@ class BenchmarkThread(threading.Thread):
             self.signal.emit(index, str(delay))
 
 
+class ShellScriptThread(threading.Thread):
+    def __init__(self, script):
+        super().__init__()
+        self.script = script
+        self.setDaemon(True)
+
+    def run(self):
+        subprocess.run(["/bin/bash", self.script])
+
+
 class MainUI(QMainWindow, Ui_MainWindow):
     signal_update = pyqtSignal(int, str)
     def __init__(self):
@@ -75,18 +86,21 @@ class MainUI(QMainWindow, Ui_MainWindow):
     
         self.dashboard = Dashbord()
 
+        self.proxies = []
         try:
-            proxies = self.dashboard.get_proxies()
+            self.proxies = self.dashboard.get_proxies()
         except Exception as e:
             box = QMessageBox()
             box.setWindowTitle("Error")
             box.setText(str(e))
             box.exec()
             sys.exit()
+        finally:
+            self.proxies_count = len(self.proxies)
 
         self.model = QStandardItemModel(self.tableView_proxies)
 
-        for proxy in proxies:
+        for proxy in self.proxies:
             proxy_name = QStandardItem(proxy[1])
             proxy_delay = QStandardItem(" ")
             proxy_name.setEditable(False)
@@ -106,15 +120,21 @@ class MainUI(QMainWindow, Ui_MainWindow):
         tray.activated.connect(self.tray_active)
 
         tray_menu = QtWidgets.QMenu(self)
+
         act_exit = QtWidgets.QAction(self)
-        act_exit.setText("quit")
+        act_exit.setText("Quit")
         act_exit.triggered.connect(self.close)
 
         act_benchmark = QtWidgets.QAction(self)
-        act_benchmark.setText("benchmark")
+        act_benchmark.setText("Benchmark")
         act_benchmark.triggered.connect(self.benchmark)
 
+        act_update = QtWidgets.QAction(self)
+        act_update.setText("Update subscription")
+        act_update.triggered.connect(self.update_subscription)
+
         tray_menu.addAction(act_benchmark)
+        tray_menu.addAction(act_update)
         tray_menu.addAction(act_exit)
 
         tray.setContextMenu(tray_menu)
@@ -130,6 +150,9 @@ class MainUI(QMainWindow, Ui_MainWindow):
         elif reason == QtWidgets.QSystemTrayIcon.Trigger:
             pass
 
+    def update_subscription(self):
+            ShellScriptThread("./update.sh").start()
+
     def benchmark(self):
         bm = BenchmarkThread(self.dashboard, self.signal_update)
         bm.setDaemon(True)
@@ -138,6 +161,7 @@ class MainUI(QMainWindow, Ui_MainWindow):
     def update_delay(self, row, msg):
         item = self.model.item(row, 1)
         item.setText(msg)
+        self.statusbar.showMessage("{}/{}".format(row, self.proxies_count))
 
     def select_proxy(self, e):
         name_item = self.model.item(e.row(), 0)
@@ -151,6 +175,8 @@ class MainUI(QMainWindow, Ui_MainWindow):
 
 
 def main():
+    ShellScriptThread("./run.sh").start()
+
     app = QApplication(sys.argv)
     w = MainUI()
     w.show()
